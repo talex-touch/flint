@@ -2,6 +2,8 @@
 
 **An on-device model that makes decisions instead of writing text.**
 
+[English](README.md) · [简体中文](README.zh.md)
+
 You give Flint a piece of context and a small closed set of options. It returns
 the option the evidence picks, together with a confidence it can be held to. It
 never generates text, so it cannot hallucinate one, and it answers in tens of
@@ -11,8 +13,8 @@ It exists for the decisions an application makes constantly and cannot afford to
 send anywhere: **which of these candidates the user meant, which of these values
 belongs in this field, which of these actions follows from this state.** Selection
 and preference — choosing among things that already exist — rather than
-generation. A model that answers in 40 ms locally can be asked on every keystroke;
-one that answers in a second cannot be asked at all.
+generation. A model that answers in tens of milliseconds locally can be asked on
+every keystroke; one that answers in a second cannot be asked at all.
 
 This repository is the recipe, the evaluation protocol and the serving contract.
 The architecture is not ours and is not reimplemented here.
@@ -114,43 +116,100 @@ curl -s localhost:8080/v1/systemone -H 'content-type: application/json' -d '{
 
 ## The numbers we have
 
-Measured on a 322M encoder on an Apple M4 Pro, option counts as noted. These are
-from the reference build, not from a marketing run, and the host is named because
-a latency without a host is a rumour.
+Measured on the released checkpoint — 322M parameters, fp16, on an Apple M4 Pro.
+The host is named because a latency without a host is a rumour, and the revision
+is named because a number without a revision is a different model next month.
 
 | quantity | value | how |
 | --- | --- | --- |
-| one 16-option decision | ~40 ms | MLX, warm, single request, CPU+GPU shared |
-| one pass over 40 options | under 60 ms | same host, no batching |
-| released set at a 5% error budget | depends on the mixture, not the size | `docs/evaluation.md` |
+| one 16-option decision | **24.8 ms** p50, 25.1 ms p95 | MLX, warm, single request, 15 samples |
+| one question across the suites | p50 10.3 ms, p95 58.9 ms | 1,380 questions, option counts as the suites have them |
+| the model on disk | 643,835,524 bytes | fp16, CPU or GPU, no quantisation required |
+
+Accuracy is not one number, and printing a single one would be the dishonesty
+this repository exists to avoid. It is useful where the task resembles what it
+was trained for, and near chance where it does not:
+
+| suite | n | accuracy | |
+| --- | ---: | ---: | --- |
+| paste, calibration set | 200 | **78.5%** | the temperature was fitted on this set — optimistic |
+| pinyin candidates, out-of-domain | 96 | 67.7% | adjacent, unseen wording |
+| short continuation, out-of-domain | 48 | 56.2% | adjacent, unseen wording |
+| paste, out-of-domain | 192 | 34.4% | same task, unseen state |
+| MMLU | 116 | 23.3% | abstract reasoning — 4 options |
+| MMLU-Pro | 200 | 13.5% | abstract reasoning — 10 options |
+
+The last four rows are the honest ones, and the 78.5% is not one of them: accuracy
+does not depend on the temperature, but the threshold does, and the set that chose
+the operating point cannot also report it. A decision model that keeps its
+in-domain accuracy when the state changes is not what this is — the state is the
+input, and a state it has not seen is a task it has not seen.
+
+Its distinguishing property is not accuracy. It is **abstention** — knowing when
+it does not know — and on that axis the recipe change that produced this
+checkpoint is worth more than accuracy is:
+
+| | paired confidence drop | became less confident | control accuracy |
+| --- | ---: | ---: | ---: |
+| previous recipe | −0.043 | 34.5% | 34.5% |
+| **this checkpoint** | **+0.041** | **62.7%** | **60.9%** |
+
+Read the last row honestly: this is measured over the families the mixture
+contains, where the drop is +0.050. On the two families **not** in the mixture it
+is −0.002 — the improvement does not transfer. `docs/evaluation.md` §6 describes
+the measurement and is the part of this repository worth reading first.
 
 What we do **not** have: a public leaderboard number. This is not a smaller chat
-model and there is no benchmark it can be dropped into — the task is "choose among
-these options", and the only honest measurement is on a suite you can inspect.
-`docs/evaluation.md` describes how to build one and how to keep it from lying.
+model and there is no benchmark it can be dropped into — the task is "choose
+among these options", and the only honest measurement is on a suite you can
+inspect. `docs/evaluation.md` describes how to build one and how to keep it from
+lying.
 
-## No weights are published yet
+## The released model
 
-The recipe and the tooling are here. The weights are not, and the reason is in
-`docs/training.md` §2: a checkpoint is only publishable when **every corpus that
-produced its targets** permits redistribution of derived works, and most of the
-obvious public corpora do not clearly do so — several are unlicensed, one is
-share-alike, one is "other". Training on them and publishing the result would be
-a licence problem inherited silently by every user.
+**`talex-flint-1.0`** — 322M parameters, fp16, Apache-2.0.
 
-So the rule here is the one this organisation already applies to weights
-extracted from a vendor's product: **ideas are reusable, weights are not.**
-Point `flint-build` at corpora you can defend, run `flint-train`, and you have a
-checkpoint that is yours to license. `python -m flint.smoke` shows the whole path
-running today.
+[**Download**](https://github.com/talex-touch/flint/releases/tag/talex-flint-1.0) —
+the release body is the model card and carries the archive's sha256.
+
+```bash
+# MLX, what the latency above was measured with
+pip install laya-mlx
+python -c "import laya_mlx; a = laya_mlx.load('talex-flint-1.0'); print(a.predict('Order 4471 shipped.', {'q': {'type': 'noul', 'instructions': 'was it shipped?'}}))"
+
+# PyTorch, through this repository
+python -c "
+from flint.inference import FlintCheckpoint
+c = FlintCheckpoint.load('talex-flint-1.0')
+print(c.answer([{'state': 'Order 4471 shipped.', 'questions': {'q': {'type': 'noul', 'instructions': 'was it shipped?'}}}])[0])"
+```
+
+Both paths load the same directory and were checked against each other: on 200
+held-out paste decisions they agree on **200/200** options.
+
+Weights are not committed to this repository — 643 MB does not belong in git.
+They are not a separate product either: the archive is the checkpoint this
+recipe writes, and `flint-train` will write another one the same way from a
+mixture you can defend. `docs/licensing.md` records why the weights are
+Apache-2.0 while the code is MIT, and what that distinction reaches.
 
 ## License
 
-Code, schemas and documentation: **MIT** (see `LICENSE`).
+| | |
+| --- | --- |
+| code, schemas, documentation | **MIT** — [`LICENSE`](LICENSE) |
+| the released weights (`talex-flint-1.0`) | **Apache-2.0** |
 
-Weights are never committed to this repository, and `LICENSE` says nothing about
-them. A checkpoint carries the licences of its backbone encoder and of every
-corpus behind its targets; [`docs/licensing.md`](docs/licensing.md) records which
-of those the MIT grant does and does not reach, and why the two are separable.
-`docs/training.md` records the licences actually found on the corpora that would
-be the obvious choices, most of which do not permit redistribution.
+Two licences because they are two different things. The weights are a derivative
+of two permissively licensed upstreams — the `laya` engine and its released
+checkpoint (Apache-2.0), over `jhu-clsp/mmBERT-base` (MIT) — and Apache-2.0 is
+the one that carries forward every notice those licences require. Code written
+here has no such obligation and stays MIT.
+
+[`docs/licensing.md`](docs/licensing.md) covers the part that is easy to get
+wrong: what a *different* backbone would do to that answer, and why a checkpoint
+trained on a corpus you cannot redistribute is a licence problem inherited
+silently by everyone who downloads it. `docs/training.md` §2 records the licences
+actually found on the corpora that would be the obvious choices — most of them do
+not permit redistribution, which is why the mixture behind these weights was
+synthesised instead.

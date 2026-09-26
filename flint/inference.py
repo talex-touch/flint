@@ -5,16 +5,21 @@ set), evaluation (to produce a report) and serving (to answer a request). A
 second implementation would eventually disagree with the first, and the number
 it disagreed about would be a published one.
 
-A checkpoint directory is the shape the engine already loads:
+A checkpoint directory is the layout the engine loads, unchanged:
 
 ```
 <ckpt>/
-  encoder/            HuggingFace encoder, saved whole
-  head.safetensors    the decision head, type embedding, scorer and act head
+  model.safetensors     the whole model — backbone and decision head — in one file
+  encoder/config.json   the backbone's architecture; a config and no weights
+  tokenizer/            the tokenizer, as the backbone saved it
   rl_agent_config.json  engine config: encoder id, head layers, temperature(s)
-  train_meta.json     what produced it: mixture, hyper-parameters, dev scores
-  temperature.json    the fitted operating point, per question type and by width
+  train_meta.json       what produced it: mixture, hyper-parameters, dev scores
 ```
+
+The temperature is not a file of its own. The engine reads it out of
+``rl_agent_config.json``, so a checkpoint carries one answer to "how sharp is
+this" rather than two that can drift apart — and the one it carries is the one
+the engine will actually serve with.
 """
 
 from __future__ import annotations
@@ -93,7 +98,7 @@ class FlintCheckpoint:
     @classmethod
     def load(cls, path: str, device: str | None = None) -> "FlintCheckpoint":
         from safetensors.torch import load_file
-        from transformers import AutoModel, AutoTokenizer
+        from transformers import AutoTokenizer
 
         from . import engine  # imported lazily: this module must import without torch
 
@@ -102,26 +107,24 @@ class FlintCheckpoint:
             cfg = json.load(f)
 
         dev = torch.device(device) if device else torch.device("cpu")
-        encoder = AutoModel.from_pretrained(os.path.join(path, "encoder"), attn_implementation="eager")
-        encoder.to(dev).eval()
-        model = engine.build_model_on(encoder, cfg).to(dev).eval()
-        head = load_file(os.path.join(path, "head.safetensors"))
-        missing, unexpected = model.load_state_dict(head, strict=False)
-        # The encoder is saved next to the head and loaded by transformers, so
-        # its tensors are legitimately absent from head.safetensors. Only the
-        # head's own tensors are this file's responsibility, and only they can
-        # be missing because it was written by something else.
-        missing = [k for k in missing if not k.startswith("encoder.")]
-        if missing:
+        # The backbone's directory holds a config and no weights, so the model is
+        # built from the architecture and then filled in whole from
+        # model.safetensors. Loading the backbone separately from that directory
+        # would only work in a layout where it also held weights, which in this
+        # one it does not — and the failure would look like a shape mismatch
+        # rather than a missing file.
+        model = engine.build_model(cfg, encoder_dir=os.path.join(path, "encoder")).to(dev).eval()
+        state = load_file(os.path.join(path, "model.safetensors"))
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing or unexpected:
             raise ValueError(
-                "checkpoint %s is missing %d head tensors (%s); it was not written by flint.train"
-                % (path, len(missing), ", ".join(sorted(missing)[:3]))
+                "checkpoint %s does not match this engine build: %d tensors missing (%s), "
+                "%d unknown (%s)"
+                % (path, len(missing), ", ".join(sorted(missing)[:3]),
+                   len(unexpected), ", ".join(sorted(unexpected)[:3]))
             )
-        if unexpected:
-            raise ValueError("checkpoint %s has %d head tensors this build does not know: %s"
-                             % (path, len(unexpected), ", ".join(sorted(unexpected)[:3])))
 
-        tokenizer = AutoTokenizer.from_pretrained(os.path.join(path, "encoder"))
+        tokenizer = AutoTokenizer.from_pretrained(os.path.join(path, "tokenizer"))
 
         meta = {}
         meta_path = os.path.join(path, "train_meta.json")
@@ -129,21 +132,12 @@ class FlintCheckpoint:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
 
-        ckpt = cls(
+        return cls(
             path=path, cfg=cfg, model=model, tokenizer=tokenizer, device=dev,
             temperature=list(cfg.get("temperature") or [1.0, 1.0, 1.0]),
             temperature_by_options=dict(cfg.get("temperature_by_options") or {}),
             train_meta=meta,
         )
-        temp_path = os.path.join(path, "temperature.json")
-        if os.path.exists(temp_path):
-            with open(temp_path, encoding="utf-8") as f:
-                fitted = json.load(f)
-            ckpt.temperature = list(fitted.get("temperature") or ckpt.temperature)
-            ckpt.temperature_by_options = dict(
-                fitted.get("temperature_by_options") or ckpt.temperature_by_options
-            )
-        return ckpt
 
     def scale_for(self, qtype: str, k: int) -> float:
         """The temperature this question is served at.

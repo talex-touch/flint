@@ -129,28 +129,43 @@ def train(args) -> dict:
     }
 
     device = torch.device(args.device)
-    # A continuation reads the encoder out of the previous checkpoint's own
-    # `encoder/` subdirectory, not out of the checkpoint root.
-    encoder_source = os.path.join(args.init_from, "encoder") if args.init_from else args.encoder
-    encoder = AutoModel.from_pretrained(encoder_source)
-    encoder.to(device)
-    # The tokenizer is not always beside the encoder: an encoder kept in a
-    # subfolder of a release (as the reference backbone is) leaves its tokenizer
-    # in a sibling directory, so it gets its own flag.
-    tokenizer_source = args.tokenizer or encoder_source
     tokenizer_kwargs = {}
-    if args.tokenizer_subfolder:
-        tokenizer_kwargs["subfolder"] = args.tokenizer_subfolder
+    if args.init_from:
+        # A continuation starts from a Flint checkpoint, whose backbone directory
+        # holds a config and no weights. So the architecture comes from there and
+        # every weight — backbone and head together — from model.safetensors.
+        # Reading the two halves out of two different files is what the previous
+        # layout did, and it is how a checkpoint could be missing half its
+        # backbone and still look loadable.
+        from safetensors.torch import load_file
+        model = engine.build_model(cfg, encoder_dir=os.path.join(args.init_from, "encoder"))
+        model.to(device)
+        state = load_file(os.path.join(args.init_from, "model.safetensors"))
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if missing or unexpected:
+            raise SystemExit(
+                "cannot continue from %s: %d tensors missing (%s), %d unknown (%s)"
+                % (args.init_from, len(missing), ", ".join(sorted(missing)[:3]),
+                   len(unexpected), ", ".join(sorted(unexpected)[:3]))
+            )
+        encoder = model.encoder
+        tokenizer_source = os.path.join(args.init_from, "tokenizer")
+    else:
+        encoder = AutoModel.from_pretrained(args.encoder)
+        encoder.to(device)
+        # The tokenizer is not always beside the encoder: an encoder kept in a
+        # subfolder of a release (as the reference backbone is) leaves its
+        # tokenizer in a sibling directory, so it gets its own flag.
+        tokenizer_source = args.tokenizer or args.encoder
+        if args.tokenizer_subfolder:
+            tokenizer_kwargs["subfolder"] = args.tokenizer_subfolder
+        model = engine.build_model_on(encoder, cfg).to(device)
+
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, **tokenizer_kwargs)
 
     if args.freeze_encoder:
         for p in encoder.parameters():
             p.requires_grad_(False)
-
-    model = engine.build_model_on(encoder, cfg).to(device)
-    if args.init_from and os.path.exists(os.path.join(args.init_from, "head.safetensors")):
-        from safetensors.torch import load_file
-        model.load_state_dict(load_file(os.path.join(args.init_from, "head.safetensors")), strict=False)
 
     groups, skipped = build_items(tokenizer, train_rows, cfg)
     if not groups:
@@ -207,12 +222,15 @@ def train(args) -> dict:
     cfg["temperature"] = temperature
     cfg["temperature_by_options"] = temperature_by_options
 
-    encoder.save_pretrained(os.path.join(args.out, "encoder"))
-    tokenizer.save_pretrained(os.path.join(args.out, "encoder"))
+    # The engine's own layout: every weight in one file, a config-only directory
+    # for the backbone, and the tokenizer where the engine looks for it. Also
+    # writing the backbone's weights into `encoder/` would double the size of a
+    # checkpoint and give the same tensor two places to be wrong in.
+    model.encoder.config.save_pretrained(os.path.join(args.out, "encoder"))
+    tokenizer.save_pretrained(os.path.join(args.out, "tokenizer"))
     from safetensors.torch import save_file
-    save_file({k: v.contiguous() for k, v in model.state_dict().items()
-               if not k.startswith("encoder.")},
-              os.path.join(args.out, "head.safetensors"))
+    save_file({k: v.contiguous() for k, v in model.state_dict().items()},
+              os.path.join(args.out, "model.safetensors"))
 
     meta = {
         "base": args.init_from or args.encoder,
@@ -240,9 +258,7 @@ def train(args) -> dict:
         "temperatureByOptions": temperature_by_options,
     }
     for name, payload in (("rl_agent_config.json", cfg),
-                          ("train_meta.json", meta),
-                          ("temperature.json", {"temperature": temperature,
-                                                "temperature_by_options": temperature_by_options})):
+                          ("train_meta.json", meta)):
         with open(os.path.join(args.out, name), "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
             f.write("\n")

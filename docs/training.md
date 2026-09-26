@@ -155,12 +155,20 @@ the mixture spec.
 
 ```
 runs/<name>/
-  encoder/                 the backbone, saved whole (transformers format)
-  head.safetensors         the head's own tensors only
+  model.safetensors        every weight — backbone and decision head — in one file
+  encoder/config.json      the backbone's architecture; a config and no weights
+  tokenizer/               the tokenizer, as the backbone saved it
   rl_agent_config.json     engine config: encoder, head layers, temperatures
   train_meta.json          mixture, hyper-parameters, dev scores, step history
-  temperature.json         the fitted operating point, per type and per width
 ```
+
+This is the engine's layout, reproduced rather than invented, so a checkpoint
+this recipe writes is a checkpoint the engine loads — and so is one it did not
+write. Two consequences worth stating: the backbone directory carries no weights,
+which is why nothing can be loaded from it alone; and the temperature lives in
+`rl_agent_config.json`, because that is where the engine reads it from. A
+separate temperature file would be a second answer to the same question, and the
+served one would still be the engine's.
 
 `train_meta.json` is part of the artifact. A checkpoint whose training mixture and
 seed are unknown cannot be reproduced, re-evaluated or defended, and the number
@@ -182,6 +190,6 @@ flint-train \
 ```
 
 The temperature is fitted at the end of the run against `--max-error-rate`
-(default 0.10) and written to `temperature.json`. Fit it on one set and confirm it
-on another; a temperature chosen and reported on the same data cannot fail, and
-therefore proves nothing.
+(default 0.10) and written into the checkpoint's `rl_agent_config.json`. Fit it on
+one set and confirm it on another; a temperature chosen and reported on the same
+data cannot fail, and therefore proves nothing.

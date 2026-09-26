@@ -67,6 +67,7 @@ docs/method.md          the architecture and the literature behind it
 docs/training.md        the recipe, and which corpora are safe to use
 docs/evaluation.md      what to measure, and the three ways it goes wrong
 docs/api.md             request and response format
+docs/licensing.md       what the MIT grant reaches, and what it does not
 ```
 
 ## Quickstart
@@ -147,6 +148,9 @@ running today.
 
 Code, schemas and documentation: **MIT** (see `LICENSE`).
 
-Weights are never committed to this repository. A checkpoint carries the licences
-of its backbone encoder and of every corpus behind its targets, and `LICENSE`
-records why that makes the two separable.
+Weights are never committed to this repository, and `LICENSE` says nothing about
+them. A checkpoint carries the licences of its backbone encoder and of every
+corpus behind its targets; [`docs/licensing.md`](docs/licensing.md) records which
+of those the MIT grant does and does not reach, and why the two are separable.
+`docs/training.md` records the licences actually found on the corpora that would
+be the obvious choices, most of which do not permit redistribution.

@@ -19,16 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-The MIT license above covers the code, schemas and documentation in this
-repository. It does not cover:
-
-- **Backbone weights.** A Flint checkpoint is a head trained on top of an
-  encoder that someone else released. The encoder keeps its own upstream
-  license, which `docs/model-card.md` and every published checkpoint record.
-- **Checkpoints trained on data we cannot redistribute.** A checkpoint is only
-  publishable when both the backbone and every corpus that produced its targets
-  permit redistribution. `docs/training.md` spells out which corpora are safe
-  and why; anything outside that list produces a checkpoint that stays local.

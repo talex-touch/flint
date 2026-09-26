@@ -149,15 +149,19 @@ Its distinguishing property is not accuracy. It is **abstention** — knowing wh
 it does not know — and on that axis the recipe change that produced this
 checkpoint is worth more than accuracy is:
 
-| | paired confidence drop | became less confident | control accuracy |
-| --- | ---: | ---: | ---: |
-| previous recipe | −0.043 | 34.5% | 34.5% |
-| **this checkpoint** | **+0.041** | **62.7%** | **60.9%** |
+| | mean confidence drop | pairs where it fell |
+| --- | ---: | ---: |
+| previous recipe | −0.0423 | 35.5% |
+| **this checkpoint** | **+0.0550** | **71.8%** |
 
-Read the last row honestly: this is measured over the families the mixture
-contains, where the drop is +0.050. On the two families **not** in the mixture it
-is −0.002 — the improvement does not transfer. `docs/evaluation.md` §6 describes
-the measurement and is the part of this repository worth reading first.
+Read the last row honestly: those cover the families the mixture contains, where
+the drop is **+0.0784**. On the families it does not contain the number is −0.0505
+over twenty pairs — the effect is not demonstrated there, and it is not a general
+rule about abstention. Confidence here is the gate's own, normalised entropy; the
+same checkpoints scored on top probability would give different magnitudes, which
+is why
+[`docs/evaluation.md`](docs/evaluation.md) §6 pins the basis down and is the part
+of this repository worth reading first.
 
 What we do **not** have: a public leaderboard number. This is not a smaller chat
 model and there is no benchmark it can be dropped into — the task is "choose

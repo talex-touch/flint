@@ -14,6 +14,12 @@ report here always contains three things:
    differently. A model whose accuracy moves when the options move learned the
    layout rather than the question, and no aggregate hides that.
 
+A fourth measurement cannot be made on a labelled suite at all, because the item
+it needs has no label: delete the sentence that decides an answer, keep everything
+else, and see whether confidence falls. That is `--abstain`, and it is the only
+one of the four that separates a model reading its input from one guessing on
+shape. Nothing here reads a label when that mode is on.
+
 The report also refuses to be produced from a contaminated suite: if any record
 in the suite appears in the training mixture, the run stops.
 """
@@ -23,8 +29,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 
-__all__ = ["per_question_rows", "evaluate_suite", "main"]
+__all__ = ["per_question_rows", "evaluate_suite", "abstention_report", "main"]
+
+
+def _probs_for(question, answer):
+    """One question's distribution, in option order, out of a served answer.
+
+    Shared by the scored report and the abstention report on purpose: if the two
+    disagreed about what a model's distribution is, the numbers they produce
+    would not be about the same model.
+    """
+    qtype = question.get("type", "choice")
+    criteria = question.get("criteria")
+    if qtype == "choice" and isinstance(criteria, dict):
+        return [answer["probabilities"][k] for k in criteria]
+    if qtype == "noul":
+        return [answer["probabilities"]["false"], answer["probabilities"]["true"]]
+    return [answer["probabilities"][str(i)] for i in range(len(criteria))]
 
 
 def per_question_rows(checkpoint, records):
@@ -43,14 +66,9 @@ def per_question_rows(checkpoint, records):
             answer = answers.get(key)
             if answer is None:
                 continue
+            probs = _probs_for(question, answer)
             qtype = question.get("type", "choice")
             criteria = question.get("criteria")
-            if qtype == "choice" and isinstance(criteria, dict):
-                probs = [answer["probabilities"][k] for k in criteria]
-            elif qtype == "noul":
-                probs = [answer["probabilities"]["false"], answer["probabilities"]["true"]]
-            else:
-                probs = [answer["probabilities"][str(i)] for i in range(len(criteria))]
 
             index = answer_index(qtype, criteria, question.get("label"))
             rows.append({
@@ -158,6 +176,116 @@ def evaluate_suite(checkpoint, records, suite_name="suite", max_error_rates=(0.0
     return report
 
 
+def abstention_report(checkpoint, records, mix_records=None):
+    """Paired evidence deletion: does confidence fall when the answer is removed?
+
+    Accuracy cannot answer this question, and scoring an unanswerable item answers
+    a different one. So no label is read here: what is compared is the confidence
+    of two records that differ in exactly one way — in one the sentence that
+    decides the answer has been deleted, in the other it is intact. A model that
+    never read the evidence shows no drop between them.
+
+    The suite carries the pairing in ``_meta``:
+
+    ``_meta.control_id``  on the unanswerable record, naming the intact partner's
+    ``_meta.id``
+
+    ``_meta.family``      the question family, used to split the result into
+                          families the mixture contains and families it does not
+
+    That split is the point. On the reference build the drop was clear on the
+    families the mixture contained and *not shown* on the families it did not,
+    and a pooled number would have reported the first half as the model's general
+    behaviour. The second half is twenty pairs: read it as "not demonstrated
+    here", not as an effect in the opposite direction.
+
+    One question per record is required rather than convenient: the pairing is a
+    property of the record, and averaging several questions into one confidence
+    would make the drop a number about the suite's shape.
+    """
+    from . import metrics
+
+    sizes = sorted({len(r.get("questions") or {}) for r in records})
+    if sizes != [1]:
+        raise SystemExit(
+            "an abstention suite must hold exactly one question per record, found %s; "
+            "the pairing is a property of the record" % (sizes or "no questions"))
+
+    meta = [r.get("_meta") or {} for r in records]
+    missing = [i for i, m in enumerate(meta) if m.get("id") is None]
+    if missing:
+        raise SystemExit(
+            "%d of %d records carry no _meta.id, so nothing can be paired; the first is "
+            "record %d" % (len(missing), len(records), missing[0]))
+    by_id = {m["id"]: i for i, m in enumerate(meta)}
+
+    answers = checkpoint.answer(records)
+    # The metric takes the distributions, not a confidence number per record: a
+    # choice over five options and a yes/no do not sit on the same confidence
+    # scale, and entropy is normalised by each row's own width. Reducing to one
+    # number here first would silently score every row at whichever width the
+    # caller assumed.
+    probs_by_record = []
+    for record, answer in zip(records, answers):
+        key = next(iter(record["questions"]))
+        probs_by_record.append(
+            _probs_for(record["questions"][key], answer[key]) if key in answer else None)
+
+    unknown, control, families = [], [], []
+    unscorable = []
+    for i, m in enumerate(meta):
+        control_id = m.get("control_id")
+        if not control_id:
+            continue
+        j = by_id.get(control_id)
+        if j is None:
+            raise SystemExit(
+                "record %d names control %r, which is not in this suite; a partial pairing "
+                "would report a drop over a subset that is not the one you think"
+                % (i, control_id))
+        if probs_by_record[i] is None or probs_by_record[j] is None:
+            unscorable.append((i, j))
+            continue
+        unknown.append(probs_by_record[i])
+        control.append(probs_by_record[j])
+        families.append(m.get("family"))
+
+    # A pair with no distribution on one side is the same failure as a dangling
+    # `control_id`, and skipping it quietly would be worse: the pair count would
+    # simply shrink, so a suite the model could not answer would read as a smaller
+    # measurement rather than a broken one.
+    if unscorable:
+        raise SystemExit(
+            "%d of %d pairs have no distribution on one side and cannot be scored "
+            "(first: %r, paired with %r). Take those records out of the suite, or find out "
+            "why the model returned nothing for them; dropping them here would report a "
+            "drop over a subset smaller than the suite without saying so."
+            % (len(unscorable), len(unscorable) + len(unknown),
+               meta[unscorable[0][0]].get("id"), meta[unscorable[0][1]].get("id")))
+
+    report = {"n_pairs": len(unknown), "all": metrics.paired_confidence_drop(unknown, control)}
+
+    if mix_records is None:
+        # Without the mixture there is no way to tell a family the model was
+        # trained on from one it was not, and that is the split that decides
+        # whether a drop means anything.
+        report["familiesInMixture"] = None
+        report["familiesOutsideMixture"] = None
+        report["note"] = ("pass --mix to split by whether the family was in the training "
+                          "mixture; without it a drop cannot be told from memorisation")
+        return report
+
+    seen = {(m.get("_meta") or {}).get("family") for m in mix_records}
+    seen.discard(None)
+    inside = [k for k, f in enumerate(families) if f in seen]
+    outside = [k for k, f in enumerate(families) if f not in seen]
+    report["familiesInMixture"] = metrics.paired_confidence_drop(
+        [unknown[k] for k in inside], [control[k] for k in inside])
+    report["familiesOutsideMixture"] = metrics.paired_confidence_drop(
+        [unknown[k] for k in outside], [control[k] for k in outside])
+    return report
+
+
 def _top_option_keys(checkpoint, records, option_seed=None):
     """``{question id: {top, correct}}`` with the answer as an option *identity*.
 
@@ -195,6 +323,9 @@ def main():
     ap.add_argument("--suite", required=True, help="jsonl of decision records")
     ap.add_argument("--mix", default=None,
                     help="the training mixture, if you have it: the run stops if the suite overlaps it")
+    ap.add_argument("--abstain", action="store_true",
+                    help="the suite is paired evidence deletion, not a scored suite: "
+                         "report whether confidence falls when the answer is removed")
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cpu")
     args = ap.parse_args()
@@ -203,8 +334,9 @@ def main():
     from .mixture import find_overlap, load_jsonl
 
     records = load_jsonl(args.suite)
-    if args.mix:
-        overlap = find_overlap(load_jsonl(args.mix), records)
+    mix_records = load_jsonl(args.mix) if args.mix else None
+    if mix_records is not None:
+        overlap = find_overlap(mix_records, records)
         if overlap:
             raise SystemExit(
                 "refusing to evaluate: %d of %d suite records appear in the training mixture. "
@@ -213,7 +345,13 @@ def main():
             )
 
     checkpoint = FlintCheckpoint.load(args.checkpoint, device=args.device)
-    report = evaluate_suite(checkpoint, records, suite_name=os.path.basename(args.suite))
+    if args.abstain:
+        if mix_records is None:
+            print("warning: no --mix, so the drop cannot be split into families the model "
+                  "was trained on and families it was not", file=sys.stderr)
+        report = abstention_report(checkpoint, records, mix_records=mix_records)
+    else:
+        report = evaluate_suite(checkpoint, records, suite_name=os.path.basename(args.suite))
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:

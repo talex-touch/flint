@@ -118,6 +118,55 @@ recall, and that would have been reported as a generalisation gain.
 Practical rule: a held-out set is only held out if the generator was told to hold
 it out and the data agrees. Verify both.
 
+## 6. Delete the evidence and see whether confidence drops
+
+Every measurement above needs a label. This one cannot have one, and that is the
+point: take a question whose answer turns on one sentence, delete that sentence,
+and the item becomes unanswerable. There is no correct option left to score, so
+scoring it would measure the construction of the suite rather than the model.
+
+What is measured instead is the **difference** between two records that are
+identical except for that sentence — one unanswerable, one intact — and the
+question asked of the pair is whether confidence fell.
+
+```
+flint-evaluate --checkpoint <dir> --suite <paired.jsonl> --mix <mix.jsonl> --abstain
+```
+
+The suite declares the pairing in `_meta`: an unanswerable record carries
+`control_id`, naming its intact partner's `meta.id`, and every record carries
+`family`. Both are required — a partial pairing reports a drop over a subset that
+is not the one you think, and `abstain` refuses rather than skipping.
+
+Confidence here is the gate's confidence, normalised entropy, not the top
+probability. That distinction is not cosmetic: on the same three checkpoints the
+two bases agree on the *direction* and disagree on the magnitude, and the share
+of unanswerable items still scoring above 0.9 is 0.11 on entropy confidence and
+0.18 on top probability for the same model. Only one of those is the number a
+product would act on, and it is the one the gate reads.
+
+Measured on the reference line, 110 pairs, `--mix` pointing at the mixture each
+checkpoint was trained from:
+
+| checkpoint | mean drop | pairs where it fell | families in mixture (n=90) | families outside (n=20) |
+| --- | ---: | ---: | ---: | ---: |
+| v5 | −0.0423 | 35.5% | −0.0557 | +0.0180 |
+| v6 | +0.0306 | 50.9% | −0.0126 | +0.2249 |
+| **v7** | **+0.0550** | **71.8%** | **+0.0784** | **−0.0505** |
+
+**Read the last two columns together, and then disbelieve the last one.** The
+drop is clear on the families the mixture contains and absent — the sign even
+reverses — on the families it does not. With twenty pairs in that column, the
+outside number is noise rather than a measured absence, so the honest reading is
+"the effect was not demonstrated outside the mixture", not "the effect is
+negative outside it". Either way it is not a general property of the model: it is
+a property of the model on the task distribution, and the columns are the reason
+this section exists instead of a single number.
+
+Two things this measurement is not. It is not an accuracy result — an
+unanswerable item has no accuracy. And it is not a substitute for the coverage
+curve: a model can abstain well and still be wrong on everything it releases.
+
 ## The report
 
 `python -m flint.evaluate --checkpoint <dir> --suite <jsonl> [--mix <jsonl>]`

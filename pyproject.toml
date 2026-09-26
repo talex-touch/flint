@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flint-decision"
+version = "0.1.0"
+description = "Recipe, evaluation protocol and checkpoints for Flint, an on-device decision model for selection and preference scenarios"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["decision-model", "calibration", "selective-classification", "on-device", "system-one", "preference"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  # The engine. Flint does not reimplement the decision architecture: it trains
+  # a head on top of a released one, and calls into the same public package the
+  # backbone was released with. See docs/method.md.
+  "laya>=0.3.20",
+  "torch>=2.4",
+  "transformers>=4.44",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Only needed to build a mixture from public corpora (flint.build).
+datasets = ["datasets>=3.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+flint-train = "flint.train:main"
+flint-evaluate = "flint.evaluate:main"
+flint-serve = "flint.serve:main"
+flint-build = "flint.build:main"
+
+[tool.setuptools.packages.find]
+include = ["flint*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

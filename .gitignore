@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Weights and runs are never committed.
+# A checkpoint is a build artifact: it is produced by `flint.train`, verified by
+# `flint.evaluate`, and published as a release asset or on the Hub. Git tracks
+# the recipe that made it, not the bytes.
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.npy
+*.npz
+runs/
+checkpoints/
+
+# Datasets are downloaded, never committed.
+data/
+*.jsonl.gz
+
+# macOS
+.DS_Store

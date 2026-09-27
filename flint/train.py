@@ -213,7 +213,12 @@ def train(args) -> dict:
     if dev_rows:
         probs, labels, qtype_names = _score_dev(model, tokenizer, dev_rows, cfg, device)
         if len(labels):
-            dev_accuracy = float((np.asarray(probs).argmax(axis=1) == np.asarray(labels)).mean())
+            # Each row is scored at its own width — a yes/no question has two
+            # options, a choice question has k — so `probs` is ragged and cannot
+            # go through one 2-D array. `_fit_temperatures` below hands the same
+            # ragged rows to `metrics.select_temperature`, which expects them.
+            hits = sum(int(np.asarray(p).argmax()) == int(l) for p, l in zip(probs, labels))
+            dev_accuracy = hits / len(labels)
             temperature, temperature_by_options = _fit_temperatures(
                 probs, labels, qtype_names, args.max_error_rate
             )
@@ -319,8 +324,6 @@ def _fit_temperatures(probs, labels, qtype_names, max_error_rate):
     it would replace, and there is no way to tell those apart from the number
     alone.
     """
-    import numpy as np
-
     from . import metrics
     from .inference import QTYPE_INDEX, QTYPE_NAMES
 
@@ -331,7 +334,7 @@ def _fit_temperatures(probs, labels, qtype_names, max_error_rate):
     temperature = [1.0, 1.0, 1.0]
     for qt, idx in by_type.items():
         t, _ = metrics.select_temperature(
-            np.stack([probs[i] for i in idx]), [labels[i] for i in idx], max_error_rate
+            [probs[i] for i in idx], [labels[i] for i in idx], max_error_rate
         )
         temperature[qt] = round(float(t), 4)
 
@@ -344,7 +347,7 @@ def _fit_temperatures(probs, labels, qtype_names, max_error_rate):
         if len(idx) < 40:
             continue
         t, coverage = metrics.select_temperature(
-            np.stack([probs[i] for i in idx]), [labels[i] for i in idx], max_error_rate
+            [probs[i] for i in idx], [labels[i] for i in idx], max_error_rate
         )
         per_bucket[name] = round(float(t), 4)
     return temperature, per_bucket

@@ -23,13 +23,24 @@ has to be one those things permit. This one is built from:
 
 | upstream | licence | what it contributes |
 | --- | --- | --- |
-| `laya` (engine + released checkpoint) | Apache-2.0 | the architecture, the decision head, and the encoder weights this run started from |
-| `jhu-clsp/mmBERT-base` | **MIT** | the backbone that `laya` was itself built on |
+| `laya`, the **`multilingual`** checkpoint | Apache-2.0 | the architecture, the decision head, and every weight this run started from |
+| `jhu-clsp/mmBERT-base` | **MIT** | the backbone that `laya`'s multilingual checkpoint was itself built on, and so the origin of the encoder weights |
 
 Both are permissive, so the result may be relicensed — but Apache-2.0 is the one
 that carries forward the notice obligations of both. Releasing these weights as
 MIT would mean dropping an Apache-2.0 notice, which is not ours to drop. Code
 written in this repository has no such obligation, so it stays MIT.
+
+**Which checkpoint matters**, because the `laya` repository publishes three and only
+one is this run's starting point. The repository root and `typed-decisions/` are
+both built on `answerdotai/ModernBERT-large` (1024 hidden, 28 layers, 50k
+vocabulary); this model is 768 hidden, 22 layers, 256k vocabulary, so those two
+cannot load into it at all. Anyone checking the derivation by comparing file sizes
+will be misled by the root checkpoint — 403M against this model's 322M — until they
+look at the `multilingual` subfolder, which is the same size for the same reason.
+The released archive carries the evidence either way: `rl_agent_config.json`
+records `encoder: jhu-clsp/mmBERT-base`, inherited from the base checkpoint's own
+config, and `train_meta.json` names the intermediate this run continued from.
 
 ## What a different backbone does to that answer
 

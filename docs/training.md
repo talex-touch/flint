@@ -176,18 +176,58 @@ it reports becomes unfalsifiable.
 
 ## 8. Reproducing the reference build
 
+The reference build is a **two-step continuation**, and the first step starts from
+something public:
+
+1. `convaiinnovations/laya`, subfolder **`multilingual`** — an Apache-2.0
+   checkpoint, and the base every weight in the released model descends from.
+2. An intermediate of this line's own, which is *not* published.
+
+So step one is reproducible from the public base alone, and step two is
+reproducible given that intermediate. One trainer does both; `--init-from` is what
+distinguishes "continue from a checkpoint" from "start from a backbone".
+
 ```bash
+# Step one: continue from the public base. `--init-from` takes any directory laid
+# out the way the engine writes one — `model.safetensors`, `encoder/config.json`,
+# `tokenizer/` — which is exactly what the subfolders of `convaiinnovations/laya`
+# are, so the base is usable here as downloaded.
 flint-train \
-  --mix data/mix.jsonl \
+  --mix data/mix-step1.jsonl \
   --dev data/dev.jsonl \
-  --out runs/flint-0.1.0 \
-  --encoder jhu-clsp/mmBERT-base \
+  --out runs/flint-step1 \
+  --init-from models/laya/multilingual \
+  --epochs 2 --lr-enc 2.5e-5 --lr-head 1e-4 \
+  --smooth 0.05 --device mps
+
+# Step two: continue from it — the shape the reference build took.
+flint-train \
+  --mix data/mix-step2.jsonl \
+  --dev data/dev.jsonl \
+  --out runs/flint-step2 \
+  --init-from runs/flint-step1 \
   --epochs 1 --batch 16 \
   --lr-enc 8e-6 --lr-head 3e-5 \
   --max-len 1024 --head-max-len 512 \
   --smooth 0.03 --seed 20260925 \
   --device mps
 ```
+
+`--encoder` is the flag for step zero — a backbone with a freshly initialised head.
+`--init-from` instead reads the architecture from the checkpoint's `encoder/` (a
+config, no weights) and **every** weight, backbone and head together, from
+`model.safetensors`; it refuses the checkpoint if a single tensor is missing or
+unknown, so a continuation cannot silently carry half a model. Splitting those
+halves across two files is what this repository did before, and it is how a
+checkpoint could be missing half its backbone and still look loadable.
+
+What the release cannot give you is the *data*: neither mixture is published (§2),
+so re-deriving these exact weights additionally needs the intermediate's mixture.
+The archive still records both steps' evidence, which is what lets a run of your own
+be *compared* against the reference even where it cannot be replayed:
+`train_meta.json` names the intermediate this run continued from, and
+`rl_agent_config.json` records `encoder: jhu-clsp/mmBERT-base` — the backbone of
+the base checkpoint, carried over from the base checkpoint's own config.
 
 The temperature is fitted at the end of the run against `--max-error-rate`
 (default 0.10) and written into the checkpoint's `rl_agent_config.json`. Fit it on

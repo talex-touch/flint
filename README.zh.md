@@ -151,6 +151,6 @@ print(c.answer([{'state': 'Order 4471 shipped.', 'questions': {'q': {'type': 'no
 | 代码、schema、文档 | **MIT** —— [`LICENSE`](LICENSE) |
 | 已发布的权重(`talex-flint-1.0`) | **Apache-2.0** |
 
-两个许可,因为它们是两样东西。权重是两个宽松许可上游的衍生作品——`laya` 引擎及其已发布检查点(Apache-2.0),底座是 `jhu-clsp/mmBERT-base`(MIT)——而 Apache-2.0 是能把这些许可要求的声明义务**一路带下去**的那一个。本仓库自己写的代码没有这个义务,保持 MIT。
+两个许可,因为它们是两样东西。权重是两个宽松许可上游的衍生作品——[`laya`](https://huggingface.co/convaiinnovations/laya) 的 **`multilingual`** 检查点(Apache-2.0),这里的每一个权重都从它而来;它的底座是 [`jhu-clsp/mmBERT-base`](https://huggingface.co/jhu-clsp/mmBERT-base)(MIT)——而 Apache-2.0 是那个能把这些许可要求的声明义务**一路带下去**的许可。那个仓库里另外两个检查点是 ModernBERT-large,**不在**这条血缘上;为什么这个区分值得查一眼,写在 [`docs/licensing.md`](docs/licensing.md)。本仓库自己写的代码没有这个义务,保持 MIT。
 
 [`docs/licensing.md`](docs/licensing.md) 写的是最容易搞错的那部分:**换一个底座**会对上面这个答案做什么,以及为什么在一个你无权再分发的语料上训出来的检查点,是一个**每个下载者都会静默继承**的许可问题。`docs/training.md` §2 记录了那几个「显而易见的选择」语料实际查到的许可——它们大多不允许再分发,这也是**这批权重背后的混合集是合成出来的**原因。

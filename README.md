@@ -205,10 +205,14 @@ Apache-2.0 while the code is MIT, and what that distinction reaches.
 | the released weights (`talex-flint-1.0`) | **Apache-2.0** |
 
 Two licences because they are two different things. The weights are a derivative
-of two permissively licensed upstreams — the `laya` engine and its released
-checkpoint (Apache-2.0), over `jhu-clsp/mmBERT-base` (MIT) — and Apache-2.0 is
-the one that carries forward every notice those licences require. Code written
-here has no such obligation and stays MIT.
+of two permissively licensed upstreams — [`laya`](https://huggingface.co/convaiinnovations/laya)'s
+**`multilingual`** checkpoint (Apache-2.0), which every weight here comes down
+from, over [`jhu-clsp/mmBERT-base`](https://huggingface.co/jhu-clsp/mmBERT-base)
+(MIT), the backbone that checkpoint was itself built on — and Apache-2.0 is the
+one that carries forward every notice those licences require. (The other two
+checkpoints in that repository are ModernBERT-large and are **not** in this
+lineage; `docs/licensing.md` says why the distinction is worth checking.) Code
+written here has no such obligation and stays MIT.
 
 [`docs/licensing.md`](docs/licensing.md) covers the part that is easy to get
 wrong: what a *different* backbone would do to that answer, and why a checkpoint

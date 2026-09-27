@@ -150,7 +150,7 @@ promise. It is the right tool if a coverage guarantee is what you need.
 
 | idea | where it comes from | used for |
 | --- | --- | --- |
-| non-autoregressive decision engine, per-type head | `laya` (Apache-2.0), Convai Innovations | the architecture, imported rather than copied |
+| non-autoregressive decision engine, per-type head | `laya` (Apache-2.0), Convai Innovations — its **`multilingual`** checkpoint is the base every Flint weight comes down from | the architecture, imported rather than copied |
 | conditional-logit / paired-comparison form | Bradley & Terry (1952) | why option order is permutation-invariant |
 | proper scoring rules | the log score; the engine's spherical + ranked-probability variant | the training objective |
 | label smoothing | standard | keeping the target from demanding certainty |
